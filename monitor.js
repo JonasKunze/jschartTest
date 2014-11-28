@@ -1,110 +1,133 @@
+var barCollors = [ "250,180,180", "151,187,205", "151,205,150" ]
 /**
- * Generates a summary for every subdetector by summing up the values of all PCs
+ * Generates a summary for every PC or every SourceID by summing up the values
+ * of all subdetectors
+ * 
+ * @param sumLevel
+ *            The level in the map used for the sum. If 1 all sources will be
+ *            summed (PC overview), if 2 all hosts are summed (detector
+ *            overview)
  */
-function getDetectorOverview(map) {
-	console.log(map);
-	
-	var activePCs = getActivePCs();
+function getOverviewData(map, sumLevel, sourceID) {
+	var activePCs = getKnownPCs();
 
-	var data = {};
-	data.labels = [];
-	data.datasets = [];
+	var datasetNames = {}; // keyset of all datasets (not array to make
+	// datasets uinique)
+	var sum = {};
+	var sumKey = "";
 
-	var numberOfDatasets = 0;
-
-	var knownSources = {};
-	var knownDatasets = {};
-	for ( var host in map) {
-		// if ($.inArray(host, activePCs) < 0) {
-		// continue;
-		// }
-		var sourceNum = 0;
-		for ( var source in map[host]) {
-			if (!knownSources[source]) {
-				data.labels.push(source);
-				knownSources[source] = {};
-			}
-			for ( var key in map[host][source]) {
-				if (!knownDatasets[key]) {
-					knownDatasets[key] = numberOfDatasets++;
-
-					data.datasets.push({
-						'label' : key,
-						'data' : []
-					});
-				}
-				// sum[source][key] += map[host][source][key];
-
-				var datasetID = knownDatasets[key];
-				if (!data.datasets[datasetID].data[sourceNum]) {
-					data.datasets[datasetID].data[sourceNum] = map[host][source][key];
-				} else {
-					data.datasets[datasetID].data[sourceNum] += map[host][source][key];
+	if (sumLevel == 3) {
+		var datasetName = "ReceivedSubIDs";
+		datasetNames[datasetName] = 1;
+		for ( var host in map) {
+			var subDetectorData = map[host][sourceID]
+			if (subDetectorData) {
+				for ( var subID in subDetectorData) {
+					if (!sum[subID]) {
+						sum[subID] = {};
+						sum[subID][datasetName] = subDetectorData[subID];
+					} else {
+						sum[subID][datasetName] += subDetectorData[subID];
+					}
 				}
 			}
-			sourceNum++;
+		}
+	} else {
+		for ( var host in map) {
+			if (!activePCs[host]) {
+				continue;
+			}
+			if (sumLevel == 1 && !sum[host]) {
+				sum[host] = {};
+				sumKey = host;
+			}
+			for ( var source in map[host]) {
+				if ((sumLevel == 2) && !sum[source]) {
+					sum[source] = {};
+					sumKey = source;
+				}
+				for ( var key in map[host][source]) {
+					if (!sum[sumKey][key]) {
+						sum[sumKey][key] = map[host][source][key];
+						datasetNames[key] = 1;
+					} else {
+						sum[sumKey][key] += map[host][source][key];
+					}
+				}
+			}
 		}
 	}
-	return data;
+
+	console.log(sum);
+
+	var chartData = {};
+	chartData.labels = [];
+	chartData.datasets = [];
+
+	/*
+	 * Find maximum values
+	 */
+	var scaleFactors = {};
+	for ( var dataset in datasetNames) {
+		scaleFactors[dataset] = 0;
+		for ( var label in sum) {
+			if (sum[label][dataset] > scaleFactors[dataset]) {
+				scaleFactors[dataset] = sum[label][dataset];
+			}
+		}
+	}
+
+	/*
+	 * Calculate scale factors for every dataset and store labels
+	 */
+	for ( var dataset in datasetNames) {
+		scaleFactors[dataset] = scaleValue(scaleFactors[dataset]);
+	}
+
+	for ( var label in sum) {
+		chartData.labels.push(label);
+	}
+
+	var datasetNum = 0;
+	for ( var dataset in datasetNames) {
+		var data = [];
+		var scale = scaleFactors[dataset];
+		for ( var label in sum) {
+			data.push(sum[label][dataset] / scale['factor']);
+		}
+
+		chartData.datasets.push({
+			'label' : dataset
+					+ (scale['prefix'] ? ' [' + scale['prefix'] + ']' : ''),
+			'data' : data,
+			fillColor : "rgba(" + barCollors[datasetNum] + ",0.5)",
+			strokeColor : "rgba(" + barCollors[datasetNum] + ",1)",
+			pointColor : "rgba(" + barCollors[datasetNum] + ",1)",
+			pointStrokeColor : "#fff",
+			pointHighlightFill : "#fff",
+			pointHighlightStroke : "rgba(" + barCollors[datasetNum++] + ",1)",
+		});
+	}
+	return chartData;
 }
-/**
- * Generates a summary for every PC by summing up the values of all subdetectors
- */
-function getPcOverview(map) {
-	var activePCs = getActivePCs();
 
-	var data = {};
-	data.labels = [];
-	data.datasets = [];
-
-	var numberOfDatasets = 0;
-
-	var knownHosts = {};
-	var knownDatasets = {};
-
-	var hostNum = 0;
-	for ( var host in map) {
-		if (!knownHosts[host]) {
-			data.labels.push(host);
-			knownHosts[host] = {};
-		}
-
-		// if ($.inArray(host, activePCs) < 0) {
-		// continue;
-		// }
-		for ( var source in map[host]) {
-			for ( var key in map[host][source]) {
-				if (!knownDatasets[key]) {
-					knownDatasets[key] = numberOfDatasets++;
-
-					data.datasets.push({
-						'label' : key,
-						'data' : []
-					});
-				}
-				// sum[source][key] += map[host][source][key];
-
-				var datasetID = knownDatasets[key];
-				if (!data.datasets[datasetID].data[hostNum]) {
-					data.datasets[datasetID].data[hostNum] = 0;
-				} else {
-					data.datasets[datasetID].data[hostNum] += map[host][source][key];
-				}
-			}
-			hostNum++;
-		}
-	}
-	return data;
+function scaleValue(value) {
+	var potenz = Math.floor(Math.log(value) / Math.log(1000));
+	var prefixList = [ "", "k", "M", "G", "T", "P" ];
+	return {
+		'factor' : Math.pow(1000, potenz),
+		'prefix' : prefixList[potenz]
+	};
 }
 
 function updatePcList(map) {
-	var activePCs = getActivePCs();
+	var activePCs = getKnownPCs();
 	$('#activePCs').empty();
 
 	for ( var host in map) {
 		var selected = "";
 
-		if ($.inArray(host, activePCs) > -1) {
+		if (activePCs[host] != false) {
 			selected = 'selected="selected"';
 		}
 
@@ -118,57 +141,94 @@ function onActivePcChange() {
 
 }
 
-function getActivePCs() {
-	var activePCs = [];
-	$('#activePCs :selected').each(function(i, selected) {
-		activePCs[i] = $(selected).text();
+function getKnownPCs() {
+	var activePCs = {};
+	$('#activePCs > option').each(function() {
+		activePCs[$(this).text()] = this.selected;
 	});
+
 	return activePCs;
 }
 
 function drawOverviewChart(chartID, data) {
-	var test = {
-		labels : [],
-		datasets : [ {
-			label : "My First dataset",
-			fillColor : "rgba(220,220,220,0.2)",
-			strokeColor : "rgba(220,220,220,1)",
-			pointColor : "rgba(220,220,220,1)",
-			pointStrokeColor : "#fff",
-			pointHighlightFill : "#fff",
-			pointHighlightStroke : "rgba(220,220,220,1)",
-			data : []
-		}, {
-			label : "My Second dataset",
-			fillColor : "rgba(151,187,205,0.2)",
-			strokeColor : "rgba(151,187,205,1)",
-			pointColor : "rgba(151,187,205,1)",
-			pointStrokeColor : "#fff",
-			pointHighlightFill : "#fff",
-			pointHighlightStroke : "rgba(151,187,205,1)",
-			data : []
-		} ]
-	};
+	var chartWrapper = $("#" + chartID);
+	chartWrapper.html("").html(
+			'<canvas id="' + chartID + '-chart" width="' + chartWrapper.width()
+					+ '" height="' + chartWrapper.height() + '"></canvas>');
 
-	console.log(test);
-	console.log(data);
+	var ctx = document.getElementById(chartID + "-chart").getContext("2d");
 
-	var ctx = document.getElementById(chartID).getContext("2d");
+	var myLineChart = new Chart(ctx)
+			.Bar(
+					data,
+					{
+						bezierCurve : false,
+						legendTemplate : '<ul class="tc-chart-js-legend"><% for (var i=0; i<datasets.length; i++){%><li><span style="background-color:<%=datasets[i].fillColor%>"></span><%if(datasets[i].label){%><%=datasets[i].label%><%}%></li><%}%></ul>'
+					});
 
-	var myLineChart = new Chart(ctx).Bar(data, {
-		bezierCurve : false,
-	});
+	myLineChart.id = chartID;
 	return myLineChart;
 }
 
-function updateChart(chart, labels, values) {
-//	chart.datasets[0].points[2].value = 50;
+function updateChart(chart, data) {
+	if (chart.datasets.length != data.datasets.length) {
+		return drawOverviewChart(chart.id, data);
+	}
+
+	for (set = 0; set < data.datasets.length; set++) {
+		var delta = data.datasets[set].data.length
+				- chart.datasets[set].bars.length;
+		if (delta != 0) {
+			return drawOverviewChart(chart.id, data);
+		}
+	}
+
+	for (set = 0; set < data.datasets.length; set++) {
+		for (p = 0; p < data.datasets[set].data.length; p++) {
+			chart.datasets[set].bars[p].value = data.datasets[set].data[p] / 2;
+		}
+	}
+
+	chart.update();
+
+	return chart;
 }
 
 var detectorOverviewChart;
 var pcOverviewChart;
+var activeOverviewChart;
 
-function loadCharts() {
+var unfinishedEventChart;
+var selectedSourceID = -1;
+
+function loadPcOverview() {
+	$.ajax({
+		url : "http://na62monitoring/farm/stats.json",
+		beforeSend : function(xhr) {
+			xhr.overrideMimeType("text/plain; charset=x-user-defined");
+		}
+	}).done(function(data) {
+		var obj = jQuery.parseJSON(data);
+		updatePcList(obj.DetectorData);
+
+		drawUnfinishedEventChart(obj.UnfinishedEventData);
+
+		var pcOverview = getOverviewData(obj.DetectorData, 1);
+
+		if (pcOverview['labels'].length == 0) {
+			return;
+		}
+		activeOverviewChart = pcOverviewChart;
+		if (!pcOverviewChart) {
+			pcOverviewChart = drawOverviewChart("pcOverviewChart", pcOverview);
+			$("#pcOverviewChartLegend").html(pcOverviewChart.generateLegend());
+		} else {
+			pcOverviewChart = updateChart(pcOverviewChart, pcOverview);
+		}
+	});
+}
+
+function loadDetectorOverview() {
 	$.ajax({
 		url : "http://na62monitoring/farm/stats.json",
 		beforeSend : function(xhr) {
@@ -177,38 +237,89 @@ function loadCharts() {
 	}).done(
 			function(data) {
 				var obj = jQuery.parseJSON(data);
-
-				var detectorOverview = getDetectorOverview(obj.DetectorData)
-				var pcOverview = getPcOverview(obj.DetectorData)
-				// console.log(getDetectorOverview(obj.DetectorData));
-
 				updatePcList(obj.DetectorData);
 
+				drawUnfinishedEventChart(obj.UnfinishedEventData);
+
+				var detectorOverview = getOverviewData(obj.DetectorData, 2);
+
+				if (detectorOverview['labels'].length == 0) {
+					return;
+				}
+				activeOverviewChart = detectorOverviewChart;
 				if (!detectorOverviewChart) {
 					detectorOverviewChart = drawOverviewChart(
 							"sourceOverviewChart", detectorOverview);
-
-					// $("#overviewTabsLegend").html(
-					// detectorOverviewChart.generateLegend());
+					$("#sourceOverviewChartLegend").html(
+							detectorOverviewChart.generateLegend());
 				} else {
-					updateChart(detectorOverviewChart, labels, values);
+					detectorOverviewChart = updateChart(detectorOverviewChart,
+							detectorOverview);
 				}
-
-				if (!pcOverviewChart) {
-					var labels = [];
-					var values = [];
-					for ( var host in pcOverview) {
-						labels.push(host);
-						values.push(pcOverview[host]["missingEvents"]);
+				$('#sourceOverviewChart').click(function(evt) {
+					var activeBars = detectorOverviewChart.getBarsAtEvent(evt);
+					selectedSourceID = activeBars[0]['label'];
+					if (!selectedSourceID && selectedSourceID != 0) {
+						selectedSourceID = -1;
+					} else {
+						console.log("Selected sourceID " + selectedSourceID);
+						loadDetectorOverview();
 					}
-					pcOverviewChart = drawOverviewChart("pcOverviewChart",
-							pcOverview);
-				}
+				});
 			});
 }
 
+function drawUnfinishedEventChart(subdetectorData) {
+	if (selectedSourceID == -1) {
+		if (unfinishedEventChart) {
+			unfinishedEventChart.clear();
+		}
+		return;
+	}
+
+	console.log("Drawing unfinishedEvents chart for sourceID "
+			+ selectedSourceID);
+
+	var data = getOverviewData(subdetectorData, 3, selectedSourceID);
+	if (data['labels'].length == 0) {
+		return;
+	}
+
+	if (!unfinishedEventChart) {
+		unfinishedEventChart = drawOverviewChart("unfinishedEventChart", data);
+		// $("#sourceOverviewChartLegend").html(
+		// unfinishedEventChart.generateLegend());
+	} else {
+		unfinishedEventChart = updateChart(unfinishedEventChart, data);
+	}
+}
+
+function loadCharts() {
+	if (activeOverviewChart == detectorOverviewChart) {
+		loadDetectorOverview();
+	}
+	if (activeOverviewChart == pcOverviewChart) {
+		loadPcOverview();
+	}
+
+}
+
 function onLoad() {
-	$('#activePCs').change(onActivePcChange);
-	setInterval(loadCharts, 2000);
-	loadCharts();
+	$("#subdetectorTabs").tabs();
+
+	$('#overviewTabs').tabs({
+		beforeActivate : function(event, ui) {
+			var selectedTabID = ui.newPanel.attr('id');
+
+			if (selectedTabID == "sourceOverview") {
+				loadDetectorOverview();
+			} else if (selectedTabID == "pcOverview") {
+				loadPcOverview();
+			}
+		}
+	});
+	loadDetectorOverview();
+
+	// $('#activePCs').change(onActivePcChange);
+	// setInterval(loadCharts, 2000);
 }
