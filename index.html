@@ -50,18 +50,25 @@
 		<div style="position:relative;float:left;width:80%;">
 			<div id="pcOverviewChart" style="width:100%;height:300px"></div>
 		</div>
-	  	<div style="position:relative;float:left;width:18%;">
-	  		<div id="pcOverviewChartLegend" style=""></div>
+		<div style="position:relative;float:left;width:18%;">
+			<div id="pcOverviewChartLegend" style=""></div>
 		</div>
 	  </div>
 	  <div id="selectInput">
 	  	<div>
-		  	<select multiple="multiple" id="activePCs" name="my-select[]">
+		  	<select multiple="multiple" id="activePCs">
 		  		<option value='elem_100'>elem 100</option>
 			</select>
+		  	<select multiple="multiple" id="activeSources">
+		  		<option value='elem_100'>elem 100</option>
+			</select>
+			<input type="checkbox" name="checkbox" id="updateCheckbox" checked="checked">
+			<label for="updateCheckbox">Update Charts</label>
 		</div>
 	  </div>
 	</div>
-	<div id="unfinishedEventChart" style="width:100%;height:200px"></div>
+
+
+	<div id="unfinishedEventChart" style="width:1000px;height:200px"></div>
 </body>
 </html>

@@ -1,4 +1,4 @@
-var barCollors = [ "250,180,180", "151,187,205", "151,205,150" ]
+var barCollors = [ "151,187,205", "250,180,180", "151,205,150" ]
 /**
  * Generates a summary for every PC or every SourceID by summing up the values
  * of all subdetectors
@@ -9,7 +9,8 @@ var barCollors = [ "250,180,180", "151,187,205", "151,205,150" ]
  *            overview)
  */
 function getOverviewData(map, sumLevel, sourceID) {
-	var activePCs = getKnownPCs();
+	var activePCs = getSelections("activePCs");
+	var activeSources = getSelections("activeSources");
 
 	var datasetNames = {}; // keyset of all datasets (not array to make
 	// datasets uinique)
@@ -42,8 +43,13 @@ function getOverviewData(map, sumLevel, sourceID) {
 				sumKey = host;
 			}
 			for ( var source in map[host]) {
-				if ((sumLevel == 2) && !sum[source]) {
-					sum[source] = {};
+				if (!activeSources[source]) {
+					continue;
+				}
+				if ((sumLevel == 2)) {
+					if(!sum[source]){
+						sum[source] = {};
+					}
 					sumKey = source;
 				}
 				for ( var key in map[host][source]) {
@@ -57,8 +63,6 @@ function getOverviewData(map, sumLevel, sourceID) {
 			}
 		}
 	}
-
-	console.log(sum);
 
 	var chartData = {};
 	chartData.labels = [];
@@ -76,7 +80,6 @@ function getOverviewData(map, sumLevel, sourceID) {
 			}
 		}
 	}
-
 	/*
 	 * Calculate scale factors for every dataset and store labels
 	 */
@@ -108,20 +111,26 @@ function getOverviewData(map, sumLevel, sourceID) {
 			pointHighlightStroke : "rgba(" + barCollors[datasetNum++] + ",1)",
 		});
 	}
+
+//	console.log(scaleFactors);
+//	console.log(sum);
+//	console.log(chartData);
+//	console.log("########");
 	return chartData;
 }
 
 function scaleValue(value) {
-	var potenz = Math.floor(Math.log(value) / Math.log(1000));
+	var magnitude = 10;
+	var potenz = Math.floor(Math.log(value) / Math.log(magnitude));
 	var prefixList = [ "", "k", "M", "G", "T", "P" ];
 	return {
-		'factor' : Math.pow(1000, potenz),
-		'prefix' : prefixList[potenz]
+		'factor' : Math.pow(magnitude, potenz),
+		'prefix' : /* prefixList[potenz] */"10E" + potenz
 	};
 }
 
 function updatePcList(map) {
-	var activePCs = getKnownPCs();
+	var activePCs = getSelections("activePCs");
 	$('#activePCs').empty();
 
 	for ( var host in map) {
@@ -137,13 +146,38 @@ function updatePcList(map) {
 	}
 }
 
+function updateSourceList(map) {
+	var activeSources = getSelections("activeSources");
+	$('#activeSources').empty();
+
+	var addedSources = {};
+	for ( var host in map) {
+		for ( var source in map[host]) {
+			if (addedSources[source]) {
+				continue;
+			}
+			addedSources[source] = true;
+
+			var selected = "";
+
+			if (activeSources[source] != false) {
+				selected = 'selected="selected"';
+			}
+
+			$('#activeSources').append(
+					'<option ' + selected + ' value="whatever">' + source
+							+ '</option>');
+		}
+	}
+}
+
 function onActivePcChange() {
 
 }
 
-function getKnownPCs() {
+function getSelections(selectID) {
 	var activePCs = {};
-	$('#activePCs > option').each(function() {
+	$('#' + selectID + ' > option').each(function() {
 		activePCs[$(this).text()] = this.selected;
 	});
 
@@ -172,6 +206,7 @@ function drawOverviewChart(chartID, data) {
 
 function updateChart(chart, data) {
 	if (chart.datasets.length != data.datasets.length) {
+		console.log("redrawing chart because dataset length changed");
 		return drawOverviewChart(chart.id, data);
 	}
 
@@ -179,13 +214,15 @@ function updateChart(chart, data) {
 		var delta = data.datasets[set].data.length
 				- chart.datasets[set].bars.length;
 		if (delta != 0) {
+			console
+					.log("redrawing chart because number of data points changed");
 			return drawOverviewChart(chart.id, data);
 		}
 	}
 
 	for (set = 0; set < data.datasets.length; set++) {
 		for (p = 0; p < data.datasets[set].data.length; p++) {
-			chart.datasets[set].bars[p].value = data.datasets[set].data[p] / 2;
+			chart.datasets[set].bars[p].value = data.datasets[set].data[p];
 		}
 	}
 
@@ -210,6 +247,7 @@ function loadPcOverview() {
 	}).done(function(data) {
 		var obj = jQuery.parseJSON(data);
 		updatePcList(obj.DetectorData);
+		updateSourceList(obj.DetectorData);
 
 		drawUnfinishedEventChart(obj.UnfinishedEventData);
 
@@ -218,13 +256,14 @@ function loadPcOverview() {
 		if (pcOverview['labels'].length == 0) {
 			return;
 		}
-		activeOverviewChart = pcOverviewChart;
+
 		if (!pcOverviewChart) {
 			pcOverviewChart = drawOverviewChart("pcOverviewChart", pcOverview);
-			$("#pcOverviewChartLegend").html(pcOverviewChart.generateLegend());
 		} else {
 			pcOverviewChart = updateChart(pcOverviewChart, pcOverview);
 		}
+		$("#pcOverviewChartLegend").html(pcOverviewChart.generateLegend());
+		activeOverviewChart = pcOverviewChart;
 	});
 }
 
@@ -238,6 +277,7 @@ function loadDetectorOverview() {
 			function(data) {
 				var obj = jQuery.parseJSON(data);
 				updatePcList(obj.DetectorData);
+				updateSourceList(obj.DetectorData);
 
 				drawUnfinishedEventChart(obj.UnfinishedEventData);
 
@@ -246,16 +286,17 @@ function loadDetectorOverview() {
 				if (detectorOverview['labels'].length == 0) {
 					return;
 				}
-				activeOverviewChart = detectorOverviewChart;
+
 				if (!detectorOverviewChart) {
 					detectorOverviewChart = drawOverviewChart(
 							"sourceOverviewChart", detectorOverview);
-					$("#sourceOverviewChartLegend").html(
-							detectorOverviewChart.generateLegend());
 				} else {
 					detectorOverviewChart = updateChart(detectorOverviewChart,
 							detectorOverview);
 				}
+				$("#sourceOverviewChartLegend").html(
+						detectorOverviewChart.generateLegend());
+				activeOverviewChart = detectorOverviewChart;
 				$('#sourceOverviewChart').click(function(evt) {
 					var activeBars = detectorOverviewChart.getBarsAtEvent(evt);
 					selectedSourceID = activeBars[0]['label'];
@@ -277,14 +318,12 @@ function drawUnfinishedEventChart(subdetectorData) {
 		return;
 	}
 
-	console.log("Drawing unfinishedEvents chart for sourceID "
-			+ selectedSourceID);
-
 	var data = getOverviewData(subdetectorData, 3, selectedSourceID);
 	if (data['labels'].length == 0) {
 		return;
 	}
 
+	unfinishedEventChart = drawOverviewChart("unfinishedEventChart", data);
 	if (!unfinishedEventChart) {
 		unfinishedEventChart = drawOverviewChart("unfinishedEventChart", data);
 		// $("#sourceOverviewChartLegend").html(
@@ -295,6 +334,10 @@ function drawUnfinishedEventChart(subdetectorData) {
 }
 
 function loadCharts() {
+	if (!$('#updateCheckbox').prop('checked')) {
+		return;
+	}
+
 	if (activeOverviewChart == detectorOverviewChart) {
 		loadDetectorOverview();
 	}
@@ -315,11 +358,13 @@ function onLoad() {
 				loadDetectorOverview();
 			} else if (selectedTabID == "pcOverview") {
 				loadPcOverview();
+			} else {
+				activeOverviewChart = {};
 			}
 		}
 	});
 	loadDetectorOverview();
 
 	// $('#activePCs').change(onActivePcChange);
-	// setInterval(loadCharts, 2000);
+	setInterval(loadCharts, 1000);
 }
